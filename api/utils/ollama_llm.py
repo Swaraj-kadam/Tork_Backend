@@ -15,9 +15,14 @@ OLLAMA_EMBED_URL = "http://localhost:11434/api/embeddings"
 OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 
 # Default model names
-DEFAULT_MODEL = "llama3.2"
-EMBED_MODEL = "nomic-embed-text"   # download using: ollama pull nomic-embed-text
+DEFAULT_MODEL = "llama3.2:1b"
+EMBED_MODEL = "nomic-embed-text"
 
+CURRENT_MODEL = DEFAULT_MODEL
+
+def set_model(model_name):
+    global CURRENT_MODEL
+    CURRENT_MODEL = model_name
 
 # -------------------------------------------------
 # 🧠 1. Generate embeddings for text chunks
@@ -58,23 +63,29 @@ def generate_embeddings(chunks, model: str = EMBED_MODEL):
 #         return np.zeros(1536)
 
 def generate_query_embedding(query: str, model: str = EMBED_MODEL):
-    # Check cache first
     cached = get_cached_embedding(query)
     if cached:
         return np.array(cached)
 
     payload = {"model": model, "prompt": query}
     try:
-        start = time.time()
         res = requests.post(OLLAMA_EMBED_URL, json=payload)
         data = res.json()
+
         emb = np.array(data.get("embedding", []))
+
+        # ❗ Stop empty embeddings
+        if emb.size == 0:
+            logger.error("Embedding model returned EMPTY embedding!")
+            return None
+
         save_embedding(query, emb)
-        print(f"✅ Query embedding generated in {time.time()-start:.2f}s")
         return emb
+
     except Exception as e:
         logger.error(f"Embedding failed: {e}")
-        return np.zeros(1536)
+        return None
+
     
 
 # -------------------------------------------------
@@ -84,6 +95,10 @@ def ask_llama(prompt: str, model: str = DEFAULT_MODEL):
     """
     Sends prompt to LLaMA model via Ollama and returns complete response.
     """
+
+    if model is None:
+        model = CURRENT_MODEL
+        
     payload = {
         "model": model,
         "prompt": prompt,
